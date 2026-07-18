@@ -63,6 +63,8 @@ interface ScoreFile {
   nodeId?: string | null;
   viewport?: string;
   stability?: string;
+  topIssues?: Array<{ kind?: string; severity?: string; message?: string }>;
+  warnings?: string[];
 }
 
 /**
@@ -115,6 +117,18 @@ export function checkDoneGate(options: DoneGateOptions): DoneGateVerdict {
     }
 
     if (score.pass !== true) reasons.push("pass is not true.");
+
+    // Residual hotspot: thresholds can pass while CTA/icon still red in diff.png.
+    const residualBlock = score.topIssues?.some(
+      (i) =>
+        i.kind === "residual" && (i.severity === "medium" || i.severity === "high"),
+    );
+    if (residualBlock) {
+      reasons.push(
+        'residual red diffs remain (topIssues kind:"residual") — inspect diff.png; pass alone is not done.',
+      );
+    }
+
     if (score.runType !== "final") {
       reasons.push(
         `runType is "${score.runType ?? "missing"}" — done requires a fresh runType:"final" run.`,

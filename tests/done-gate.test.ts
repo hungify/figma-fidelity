@@ -158,4 +158,28 @@ describe("done gate (artifact-gated, per viewport, per stability)", () => {
     });
     expect(v.done).toBe(true);
   });
+
+  it("medium residual topIssue blocks done even when pass:true", () => {
+    const v = checkDoneGate({
+      nodeId: NODE,
+      viewports: [
+        {
+          viewport: "desktop",
+          outDir: scoreDir(
+            goodScore({
+              topIssues: [
+                {
+                  severity: "medium",
+                  kind: "residual",
+                  message: "pass=true but 238 residual red diff px remain",
+                },
+              ],
+            }),
+          ),
+        },
+      ],
+    });
+    expect(v.done).toBe(false);
+    expect(v.viewports[0]?.reasons.some((r) => r.includes("residual"))).toBe(true);
+  });
 });

@@ -26,6 +26,7 @@ export type {
 } from "./done-gate.ts";
 export { fetchGold, goldMetaPath, readGoldMeta, resolveToken } from "./fetch-gold.ts";
 export type { FetchGoldOptions, FetchGoldOutcome, GoldMeta } from "./fetch-gold.ts";
+export { loadNearestEnv } from "./load-env.ts";
 export { resolveArtifactPath } from "./paths.ts";
 export { checkGoldStaleness, DEFAULT_MAX_GOLD_AGE_DAYS } from "./staleness.ts";
 export type { StalenessOptions } from "./staleness.ts";

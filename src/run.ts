@@ -63,6 +63,22 @@ export async function run(options: RunOptions): Promise<FidelityResult> {
   });
 
   const stability = assessStability(captured.capturePaths, profile.stabilityMaxDiffRatio);
+  // Extra stability samples live in tmp — drop after assessment (artifact dir stays clean).
+  for (const p of captured.ephemeralSamplePaths) {
+    try {
+      fs.unlinkSync(p);
+    } catch {
+      /* ignore */
+    }
+  }
+  if (captured.ephemeralSamplePaths.length > 0) {
+    const dir = path.dirname(captured.ephemeralSamplePaths[0]!);
+    try {
+      fs.rmdirSync(dir);
+    } catch {
+      /* ignore */
+    }
+  }
   // Warning-only; staleness/network problems never fail a run.
   const stalenessWarnings = await checkGoldStaleness(options.goldPath);
   const warnings = [

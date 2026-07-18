@@ -12,8 +12,12 @@ import { capture } from "./capture.ts";
 import { compare } from "./compare/index.ts";
 import { checkDoneGate } from "./done-gate.ts";
 import { fetchGold } from "./fetch-gold.ts";
+import { loadNearestEnv } from "./load-env.ts";
 import { resolveArtifactPath } from "./paths.ts";
 import { run } from "./run.ts";
+
+// MCP stdio often starts without the user's shell — pull FIGMA_ACCESS_TOKEN from .env.
+loadNearestEnv();
 
 const SERVER_NAME = "figma-fidelity";
 const SERVER_VERSION = "0.1.0";

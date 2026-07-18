@@ -11,10 +11,13 @@ import * as path from "node:path";
 import { compare } from "./compare/index.ts";
 import { checkDoneGate } from "./done-gate.ts";
 import { fetchGold } from "./fetch-gold.ts";
+import { loadNearestEnv } from "./load-env.ts";
 import { startMcpServer } from "./mcp.ts";
 import { run } from "./run.ts";
 import { ALL_AGENTS, detectClients, setupAgents, type AgentId, type LaunchMode } from "./setup.ts";
 import type { ProfileName, RunType } from "./types.ts";
+
+loadNearestEnv();
 
 function arg(argv: string[], flag: string): string | undefined {
   const i = argv.indexOf(flag);

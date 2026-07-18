@@ -1,4 +1,5 @@
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 
 import type { Browser, Page } from "@playwright/test";
@@ -29,15 +30,23 @@ export interface CaptureOptions {
   /** Must resolve to exactly 1 element; omit only for page-profile runs. */
   selector?: string;
   fullPage?: boolean;
-  /** Extra captures for the stability check; written next to outPath as stability-N.png. */
+  /**
+   * Extra captures for the stability check. Sample #1 = `outPath` (actual.png).
+   * Samples #2+ go to a temp dir (not the artifact folder) — cleaned up after
+   * assessStability. Set `persistStabilitySamples` only for debugging.
+   */
   samples?: number;
+  /** Write extra samples next to outPath as `capture-02.png`… (default: temp). */
+  persistStabilitySamples?: boolean;
   timeoutMs?: number;
 }
 
 export interface CaptureSuccess {
   ok: true;
-  /** actual.png followed by stability sample paths. */
+  /** actual.png followed by temp (or persisted) sample paths for stability. */
   capturePaths: string[];
+  /** Temp sample paths the caller should delete after assessStability. */
+  ephemeralSamplePaths: string[];
   capturedAt: string;
   /** Border-box size of the selector element (DPR=1) — spec-gate input. */
   elementRect: { width: number; height: number } | null;
@@ -93,17 +102,29 @@ export async function capture(options: CaptureOptions): Promise<CaptureOutcome> 
 
     const capturedAt = new Date().toISOString();
     const capturePaths: string[] = [];
+    const ephemeralSamplePaths: string[] = [];
     const samples = Math.max(1, options.samples ?? 1);
+    const ext = path.extname(options.outPath) || ".png";
+    let sampleDir: string | null = null;
+    if (samples > 1 && !options.persistStabilitySamples) {
+      sampleDir = fs.mkdtempSync(path.join(os.tmpdir(), "fidelity-stab-"));
+    }
     let elementRect: { width: number; height: number } | null = null;
 
     for (let i = 0; i < samples; i++) {
-      const outPath =
-        i === 0
-          ? options.outPath
-          : path.join(
-              path.dirname(options.outPath),
-              `stability-${i + 1}${path.extname(options.outPath) || ".png"}`,
-            );
+      let outPath: string;
+      if (i === 0) {
+        outPath = options.outPath;
+      } else if (sampleDir) {
+        // 1-based sample index: capture-02.png = second capture (actual is #1).
+        outPath = path.join(sampleDir, `capture-${String(i + 1).padStart(2, "0")}${ext}`);
+        ephemeralSamplePaths.push(outPath);
+      } else {
+        outPath = path.join(
+          path.dirname(options.outPath),
+          `capture-${String(i + 1).padStart(2, "0")}${ext}`,
+        );
+      }
 
       if (i > 0) {
         // Re-render from scratch so the sample measures real capture variance.
@@ -133,7 +154,14 @@ export async function capture(options: CaptureOptions): Promise<CaptureOutcome> 
       capturePaths.push(outPath);
     }
 
-    return { ok: true, capturePaths, capturedAt, elementRect, warnings };
+    return {
+      ok: true,
+      capturePaths,
+      ephemeralSamplePaths,
+      capturedAt,
+      elementRect,
+      warnings,
+    };
   } finally {
     await browser?.close();
   }
