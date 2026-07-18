@@ -1,0 +1,53 @@
+{
+  "name": "figma-fidelity",
+  "version": "0.1.0",
+  "description": "MCP-first Figma visual fidelity engine: multi-signal compare, scope guards, stability check, artifact-based done-gate.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hungify/figma-fidelity.git"
+  },
+  "homepage": "https://github.com/hungify/figma-fidelity",
+  "bugs": {
+    "url": "https://github.com/hungify/figma-fidelity/issues"
+  },
+  "bin": {
+    "figma-fidelity": "./bin/figma-fidelity.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md",
+    ".githooks"
+  ],
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "packageManager": "pnpm@11.14.0",
+
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "setup": "tsx src/cli.ts setup",
+    "mcp": "tsx src/cli.ts mcp",
+    "fetch-gold": "tsx scripts/fetch-gold.ts",
+    "capture": "tsx scripts/capture.ts",
+    "crop": "tsx scripts/crop.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@playwright/test": "^1.61.1",
+    "pixelmatch": "^7.2.0",
+    "pngjs": "^7.0.0",
+    "ssim.js": "^3.5.0",
+    "tsx": "^4.22.4",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "26.0.1",
+    "@types/pixelmatch": "^5.2.6",
+    "@types/pngjs": "^6.0.5",
+    "typescript": "6.0.3",
+    "vitest": "^4.1.10"
+  }
+}

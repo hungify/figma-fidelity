@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>selector-ambiguous stub</title>
+    <style>
+      .card {
+        width: 200px;
+        height: 100px;
+        background: #eee;
+        margin: 8px;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Shared DOM stub: [data-testid=target] matches 3 elements → SELECTOR_AMBIGUOUS -->
+    <div class="card" data-testid="target">one</div>
+    <div class="card" data-testid="target">two</div>
+    <div class="card" data-testid="target">three</div>
+  </body>
+</html>
