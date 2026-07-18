@@ -142,4 +142,27 @@ describe("compare pipeline", () => {
     expect(r.avgDeltaE).not.toBeNull();
     expect(r.avgDeltaE as number).toBeGreaterThan(3);
   });
+
+  it("pass=true with residual red still warns (kind=residual)", () => {
+    // Sparse red pixels: page match/SSIM/deltaE still pass (diluted), but red remains.
+    const goldPng = makeSolidPng(800, 600, [240, 240, 240, 255]);
+    const hot = makeSolidPng(800, 600, [240, 240, 240, 255]);
+    let n = 0;
+    for (let y = 0; y < 600 && n < 100; y += 60) {
+      for (let x = 0; x < 800 && n < 100; x += 80) {
+        const i = (800 * y + x) << 2;
+        hot.data[i] = 200;
+        hot.data[i + 1] = 30;
+        hot.data[i + 2] = 30;
+        hot.data[i + 3] = 255;
+        n += 1;
+      }
+    }
+    const gold = write(goldPng, "gold");
+    const actual = write(hot, "actual");
+    const r = compare(gold, actual, outDir(), { profile: "page" });
+    expect(r.pass).toBe(true);
+    expect(r.warnings.some((w) => w.includes("residual"))).toBe(true);
+    expect(r.topIssues.some((i) => i.kind === "residual")).toBe(true);
+  });
 });

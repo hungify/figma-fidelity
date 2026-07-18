@@ -19,7 +19,9 @@ export type TopIssueKind =
   | "ssim"
   | "color"
   | "cluster"
-  | "spec-size-mismatch";
+  | "spec-size-mismatch"
+  /** Pass thresholds met, but real red diffs remain — inspect diff.png. */
+  | "residual";
 
 export type TopIssueSeverity = "high" | "medium" | "low";
 

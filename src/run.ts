@@ -33,6 +33,7 @@ export async function run(options: RunOptions): Promise<FidelityResult> {
   const profileName = resolveProfile(options);
   const profile = getProfile(profileName);
   const runType = options.runType ?? "dev";
+  const pageEscapeWarnings = warnPageEscape(options, profileName);
 
   if (!fs.existsSync(options.goldPath)) {
     throw new Error(
@@ -64,7 +65,12 @@ export async function run(options: RunOptions): Promise<FidelityResult> {
   const stability = assessStability(captured.capturePaths, profile.stabilityMaxDiffRatio);
   // Warning-only; staleness/network problems never fail a run.
   const stalenessWarnings = await checkGoldStaleness(options.goldPath);
-  const warnings = [...captured.warnings, ...compareOutcome.warnings, ...stalenessWarnings];
+  const warnings = [
+    ...pageEscapeWarnings,
+    ...captured.warnings,
+    ...compareOutcome.warnings,
+    ...stalenessWarnings,
+  ];
   const topIssues = [...compareOutcome.topIssues];
   let pass = compareOutcome.pass;
 
@@ -132,4 +138,28 @@ export async function run(options: RunOptions): Promise<FidelityResult> {
   });
 
   return result;
+}
+
+/** Heuristic: profile=page used to dodge content-crop / alpha / shadow. */
+const PAGE_ESCAPE_RE =
+  /\b(alpha|transparenc|shadow|bleed|soft.?shadow|drop.?shadow|escape|dilut|full.?page.?ok|content.?crop|figma-gold-content)\b/i;
+
+function warnPageEscape(
+  options: RunOptions,
+  profileName: string,
+): string[] {
+  if (profileName !== "page") return [];
+  const out: string[] = [];
+  if (options.expectSize) {
+    out.push(
+      "profile=page with expectSize — prefer component/strict + content-crop selector; full-page dilutes local CTA/icon diffs.",
+    );
+  }
+  const reason = options.pageReason ?? "";
+  if (PAGE_ESCAPE_RE.test(reason)) {
+    out.push(
+      `pageReason suggests content-crop dodge ("${reason.slice(0, 120)}"). Prefer component/strict + unique selector over profile=page.`,
+    );
+  }
+  return out;
 }

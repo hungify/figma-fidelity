@@ -32,11 +32,11 @@ function usage(): never {
     local = absolute package bin (default, cwd-safe); npx = npx -y figma-fidelity mcp
   figma-fidelity detect
   figma-fidelity mcp
-  figma-fidelity fetch-gold --file-key <k> --node-id <id> --out <figma-gold.png> [--scale 1]
+  figma-fidelity fetch-gold --file-key <k> --node-id <id> --out <figma-gold.png> [--scale 1] [--canvas-fill '#fff']
   figma-fidelity compare --gold <png> --actual <png> --out-dir <dir> [--profile component/strict]
   figma-fidelity run --url <url> --viewport <name> --viewport-size WxH --gold <png> --out-dir <dir>
                  (--node-id <id> | --selector <css>) [--profile …] [--page-reason …] [--run-type dev|final]
-  figma-fidelity done-gate --node-id <id> --viewport <name> --out-dir <dir> [--viewport <name> --out-dir <dir>…]
+  figma-fidelity done-gate [--node-id <id>] --viewport <name> --out-dir <dir> [--viewport-node-id <id>] …
 `);
   process.exit(2);
 }
@@ -83,6 +83,7 @@ async function cmdFetchGold(argv: string[]): Promise<void> {
     nodeId,
     outPath,
     scale: scaleRaw ? Number(scaleRaw) : 1,
+    canvasFill: arg(argv, "--canvas-fill"),
   });
   console.log(JSON.stringify(result, null, 2));
   if (!result.ok) process.exit(1);
@@ -132,8 +133,7 @@ async function cmdRun(argv: string[]): Promise<void> {
 
 async function cmdDoneGate(argv: string[]): Promise<void> {
   const nodeId = arg(argv, "--node-id");
-  if (!nodeId) usage();
-  const viewports: { viewport: string; outDir: string }[] = [];
+  const viewports: { viewport: string; outDir: string; nodeId?: string }[] = [];
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--viewport" && argv[i + 1]) {
       const viewport = argv[i + 1] as string;
@@ -143,10 +143,17 @@ async function cmdDoneGate(argv: string[]): Promise<void> {
         console.error(`--viewport ${viewport} requires a following --out-dir`);
         process.exit(2);
       }
-      viewports.push({ viewport, outDir });
+      const vpNodeFlag = argv.indexOf("--viewport-node-id", i + 1);
+      const nextVp = argv.indexOf("--viewport", i + 2);
+      const vpNodeId =
+        vpNodeFlag >= 0 && (nextVp < 0 || vpNodeFlag < nextVp)
+          ? argv[vpNodeFlag + 1]
+          : undefined;
+      viewports.push({ viewport, outDir, nodeId: vpNodeId });
     }
   }
   if (viewports.length === 0) usage();
+  if (!nodeId && viewports.every((v) => !v.nodeId)) usage();
   const verdict = checkDoneGate({ nodeId, viewports });
   console.log(JSON.stringify(verdict, null, 2));
   process.exit(verdict.done ? 0 : 1);

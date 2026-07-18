@@ -119,4 +119,43 @@ describe("done gate (artifact-gated, per viewport, per stability)", () => {
     });
     expect(v.done).toBe(false);
   });
+
+  it("per-viewport nodeId overrides top-level default", () => {
+    const desktop = scoreDir(goodScore({ viewport: "desktop", nodeId: "153:5181" }));
+    const mobile = scoreDir(
+      goodScore({ viewport: "mobile", nodeId: "153:2372" }),
+    );
+    const v = checkDoneGate({
+      nodeId: "153:5181",
+      viewports: [
+        { viewport: "desktop", outDir: desktop },
+        { viewport: "mobile", outDir: mobile, nodeId: "153:2372" },
+      ],
+    });
+    expect(v.done).toBe(true);
+  });
+
+  it("viewport-only nodeIds work without top-level nodeId", () => {
+    const v = checkDoneGate({
+      viewports: [
+        {
+          viewport: "desktop",
+          outDir: scoreDir(goodScore({ nodeId: "153:5181" })),
+          nodeId: "153:5181",
+        },
+      ],
+    });
+    expect(v.done).toBe(true);
+  });
+
+  it("resolves relative outDir against cwd", () => {
+    const dir = scoreDir(goodScore());
+    const rel = path.relative(tmp, dir);
+    const v = checkDoneGate({
+      nodeId: NODE,
+      cwd: tmp,
+      viewports: [{ viewport: "desktop", outDir: rel }],
+    });
+    expect(v.done).toBe(true);
+  });
 });

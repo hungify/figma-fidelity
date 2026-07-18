@@ -10,6 +10,8 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 
+import { compositeOnCanvas, readPng, writePng } from "./compare/png.ts";
+
 export interface FetchGoldOptions {
   fileKey: string;
   nodeId: string;
@@ -23,6 +25,12 @@ export interface FetchGoldOptions {
    * to be meaningful (e.g. Frame 27 = 544x464, not 594x514 with shadow).
    */
   useAbsoluteBounds?: boolean;
+  /**
+   * Solid canvas hex (`#fff` / `#ffffff`). When set, alpha-composites the
+   * Figma PNG onto this fill before write — matches opaque app captures when
+   * gold has transparency / soft shadow bleed.
+   */
+  canvasFill?: string;
   /** Overrides env lookup (FIGMA_ACCESS_TOKEN). */
   token?: string;
   fetchImpl?: typeof fetch;
@@ -207,6 +215,14 @@ export async function fetchGold(options: FetchGoldOptions): Promise<FetchGoldOut
     const buf = Buffer.from(await pngRes.arrayBuffer());
     fs.mkdirSync(path.dirname(options.outPath), { recursive: true });
     fs.writeFileSync(options.outPath, buf);
+
+    if (options.canvasFill) {
+      const composited = compositeOnCanvas(readPng(options.outPath), options.canvasFill);
+      writePng(options.outPath, composited);
+      warnings.push(
+        `composited gold onto canvasFill ${options.canvasFill} (alpha/shadow flattened).`,
+      );
+    }
 
     const meta: GoldMeta = {
       nodeId: options.nodeId,

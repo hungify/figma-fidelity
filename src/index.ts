@@ -4,9 +4,12 @@ export {
   areaGap,
   avgDeltaE2000,
   compare,
+  compositeOnCanvas,
+  countRealDiffPixels,
   diffBoundingBox,
   makeSolidPng,
   padTo,
+  parseHexRgb,
   pixelCompare,
   readPng,
   resizeNearest,
@@ -23,6 +26,7 @@ export type {
 } from "./done-gate.ts";
 export { fetchGold, goldMetaPath, readGoldMeta, resolveToken } from "./fetch-gold.ts";
 export type { FetchGoldOptions, FetchGoldOutcome, GoldMeta } from "./fetch-gold.ts";
+export { resolveArtifactPath } from "./paths.ts";
 export { checkGoldStaleness, DEFAULT_MAX_GOLD_AGE_DAYS } from "./staleness.ts";
 export type { StalenessOptions } from "./staleness.ts";
 export { getProfile, PROFILES } from "./profiles.ts";

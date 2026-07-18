@@ -8,12 +8,19 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 
+import { resolveArtifactPath } from "./paths.ts";
+
 export const DEFAULT_MAX_SCORE_AGE_MS = 15 * 60 * 1000;
 
 export interface DoneGateViewport {
   viewport: string;
   /** Directory containing this viewport's visual-score.json. */
   outDir: string;
+  /**
+   * Per-viewport Figma node. When set, overrides DoneGateOptions.nodeId for
+   * this viewport (desktop content crop vs mobile full page, etc.).
+   */
+  nodeId?: string;
   /**
    * Accept a persistent borderline as final. Allowed only after ONE manual
    * re-run still came back borderline; the note is surfaced in the verdict and
@@ -23,11 +30,17 @@ export interface DoneGateViewport {
 }
 
 export interface DoneGateOptions {
-  nodeId: string;
+  /**
+   * Default expected nodeId for all viewports. Optional when every viewport
+   * supplies its own `nodeId`.
+   */
+  nodeId?: string;
   viewports: DoneGateViewport[];
   /** How fresh capturedAt must be. Default 15 minutes. */
   maxScoreAgeMs?: number;
   now?: () => number;
+  /** Base for relative outDir resolution (MCP cwd). Default process.cwd(). */
+  cwd?: string;
 }
 
 export interface ViewportVerdict {
@@ -62,10 +75,23 @@ interface ScoreFile {
 export function checkDoneGate(options: DoneGateOptions): DoneGateVerdict {
   const maxAge = options.maxScoreAgeMs ?? DEFAULT_MAX_SCORE_AGE_MS;
   const now = options.now?.() ?? Date.now();
+  const cwd = options.cwd ?? process.cwd();
 
   const viewports = options.viewports.map((vp): ViewportVerdict => {
     const reasons: string[] = [];
-    const scorePath = path.join(vp.outDir, "visual-score.json");
+    const expectedNodeId = vp.nodeId ?? options.nodeId;
+    if (!expectedNodeId) {
+      return {
+        viewport: vp.viewport,
+        done: false,
+        reasons: [
+          `no nodeId for viewport "${vp.viewport}" — set DoneGateOptions.nodeId or viewports[].nodeId.`,
+        ],
+      };
+    }
+
+    const outDir = resolveArtifactPath(vp.outDir, cwd);
+    const scorePath = path.join(outDir, "visual-score.json");
 
     if (!fs.existsSync(scorePath)) {
       return {
@@ -94,9 +120,9 @@ export function checkDoneGate(options: DoneGateOptions): DoneGateVerdict {
         `runType is "${score.runType ?? "missing"}" — done requires a fresh runType:"final" run.`,
       );
     }
-    if (score.nodeId !== options.nodeId) {
+    if (score.nodeId !== expectedNodeId) {
       reasons.push(
-        `nodeId "${score.nodeId ?? "missing"}" does not match expected "${options.nodeId}".`,
+        `nodeId "${score.nodeId ?? "missing"}" does not match expected "${expectedNodeId}".`,
       );
     }
     if (score.viewport !== vp.viewport) {

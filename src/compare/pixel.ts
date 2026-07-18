@@ -85,6 +85,19 @@ export function clusterFails(
   return matchRatio >= minMatch && worstCellMatchRatio < minMatch - CLUSTER_SLACK;
 }
 
+/** Count real (red) diff pixels — excludes AA yellow. */
+export function countRealDiffPixels(diff: PNG): number {
+  const { width, height, data } = diff;
+  let n = 0;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = (width * y + x) << 2;
+      if (isRealDiffPixel(data, i)) n += 1;
+    }
+  }
+  return n;
+}
+
 /** Bounding box of real (red) diff pixels; null when no real diffs. */
 export function diffBoundingBox(
   diff: PNG,

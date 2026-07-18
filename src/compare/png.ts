@@ -30,6 +30,42 @@ export function makeSolidPng(
   return png;
 }
 
+/** Parse `#RGB` / `#RRGGBB` → RGB tuple. */
+export function parseHexRgb(hex: string): [number, number, number] {
+  const h = hex.trim().replace(/^#/, "");
+  if (h.length === 3) {
+    return [
+      Number.parseInt(h[0]! + h[0]!, 16),
+      Number.parseInt(h[1]! + h[1]!, 16),
+      Number.parseInt(h[2]! + h[2]!, 16),
+    ];
+  }
+  if (h.length !== 6) throw new Error(`Invalid hex color: ${hex}`);
+  return [
+    Number.parseInt(h.slice(0, 2), 16),
+    Number.parseInt(h.slice(2, 4), 16),
+    Number.parseInt(h.slice(4, 6), 16),
+  ];
+}
+
+/**
+ * Alpha-composite `src` onto a solid canvas fill (fixes Figma PNG transparency /
+ * soft shadows vs opaque app captures).
+ */
+export function compositeOnCanvas(src: PNG, canvasHex: string): PNG {
+  const [cr, cg, cb] = parseHexRgb(canvasHex);
+  const out = new PNG({ width: src.width, height: src.height });
+  for (let i = 0; i < src.width * src.height; i++) {
+    const o = i << 2;
+    const a = (src.data[o + 3] as number) / 255;
+    out.data[o] = Math.round((src.data[o] as number) * a + cr * (1 - a));
+    out.data[o + 1] = Math.round((src.data[o + 1] as number) * a + cg * (1 - a));
+    out.data[o + 2] = Math.round((src.data[o + 2] as number) * a + cb * (1 - a));
+    out.data[o + 3] = 255;
+  }
+  return out;
+}
+
 /** Nearest-neighbor resize to target w×h. */
 export function resizeNearest(src: PNG, width: number, height: number): PNG {
   if (src.width === width && src.height === height) return src;
