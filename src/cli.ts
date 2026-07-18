@@ -117,6 +117,12 @@ async function cmdRun(argv: string[]): Promise<void> {
     console.error(`Invalid --viewport-size ${vpSize}`);
     process.exit(2);
   }
+  const expectW = arg(argv, "--expect-width");
+  const expectH = arg(argv, "--expect-height");
+  const expectSize =
+    expectW && expectH
+      ? { width: Number(expectW), height: Number(expectH) }
+      : undefined;
   const result = await run({
     url,
     viewport,
@@ -128,6 +134,7 @@ async function cmdRun(argv: string[]): Promise<void> {
     profile: arg(argv, "--profile") as ProfileName | undefined,
     pageReason: arg(argv, "--page-reason"),
     runType: (arg(argv, "--run-type") as RunType | undefined) ?? "dev",
+    expectSize,
   });
   console.log(JSON.stringify(result, null, 2));
   if (!result.ok) process.exit(2);
