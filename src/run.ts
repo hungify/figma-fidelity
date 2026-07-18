@@ -157,8 +157,9 @@ export async function run(options: RunOptions): Promise<FidelityResult> {
 }
 
 /** Heuristic: profile=page used to dodge content-crop / alpha / shadow. */
+/** Escape excuses — not legitimate `full-bleed` layout reasons. */
 const PAGE_ESCAPE_RE =
-  /\b(alpha|transparenc|shadow|bleed|soft.?shadow|drop.?shadow|escape|dilut|full.?page.?ok|content.?crop|figma-gold-content)\b/i;
+  /\b(alpha|transparenc|soft.?shadow|drop.?shadow|escape|dilut|full.?page.?ok|content.?crop|figma-gold-content)\b|(?<!full-)bleed/i;
 
 function warnPageEscape(
   options: RunOptions,
