@@ -31,14 +31,14 @@ pnpm exec figma-fidelity detect
 pnpm setup --dry-run
 ```
 
-| Flag | Description |
-| --- | --- |
-| `--project` | Write `.cursor/mcp.json`, `.mcp.json`, `.vscode/mcp.json` in the current working directory |
-| `--agents cursor,claude,…` | Limit clients: `cursor`, `claude`, `claude-desktop`, `codex`, `vscode` |
-| `--launch local` | Absolute `…/bin/figma-fidelity.js mcp` (default; cwd-safe) |
-| `--launch npx` | `npx -y figma-fidelity mcp` (after npm publish) |
-| `--force` | Write even if the client was not detected |
-| `--dry-run` | Print planned writes without changing files |
+| Flag                       | Description                                                                                |
+| -------------------------- | ------------------------------------------------------------------------------------------ |
+| `--project`                | Write `.cursor/mcp.json`, `.mcp.json`, `.vscode/mcp.json` in the current working directory |
+| `--agents cursor,claude,…` | Limit clients: `cursor`, `claude`, `claude-desktop`, `codex`, `vscode`                     |
+| `--launch local`           | Absolute `…/bin/figma-fidelity.js mcp` (default; cwd-safe)                                 |
+| `--launch npx`             | `npx -y figma-fidelity mcp` (after npm publish)                                            |
+| `--force`                  | Write even if the client was not detected                                                  |
+| `--dry-run`                | Print planned writes without changing files                                                |
 
 ### Manual MCP config
 
@@ -96,38 +96,46 @@ Artifact paths are chosen by the host app — this package does not assume any p
 
 ## MCP tools
 
-| Tool | Description |
-| --- | --- |
-| `fidelity_fetch_gold` | Figma Images API → gold PNG + `figma-gold.meta.json` |
-| `fidelity_capture` | Hardened Playwright capture + selector uniqueness guards |
-| `fidelity_compare` | Gold vs actual (area-gap → pixel → SSIM → ΔE2000) |
-| `fidelity_run` | Full guarded loop: scope → capture → compare → artifacts |
-| `fidelity_done_gate` | Per-viewport done check against `visual-score.json` |
+Default agent surface exposes only primary workflow tools:
 
-Every verify call requires `nodeId` or `selector`, and `viewport`. `profile=page` also requires `pageReason`. Prefer `fidelity_run` for the agent loop.
+| Tool                  | Description                                              |
+| --------------------- | -------------------------------------------------------- |
+| `fidelity_fetch_gold` | Figma Images API → gold PNG + `figma-gold.meta.json`     |
+| `fidelity_run`        | Full guarded loop: scope → capture → compare → artifacts |
+| `fidelity_done_gate`  | Per-viewport done check against `visual-score.json`      |
+
+Low-level `fidelity_capture` and `fidelity_compare` remain available through CLI. To expose them through MCP for debugging, set `FIGMA_FIDELITY_DEBUG_TOOLS=1` in MCP server environment and restart the MCP client.
+
+`fidelity_run` is contract-based:
+
+- component: `nodeId` + unique `selector`; strict also requires `expectSize`;
+- page: `nodeId` + valid `pageReason`; `selector`/`expectSize` forbidden;
+- gold must be `<outDir>/figma-gold.png` with matching metadata.
+
+Prefer `fidelity_run` for agent loops.
 
 ## How it works
 
-1. **Scope guards** (before capture/compare): `SCOPE_REQUIRED` → `PAGE_REASON_REQUIRED` → `SELECTOR_NOT_FOUND` → `SELECTOR_AMBIGUOUS`
+1. **Scope guards**: exact node/profile/selector/size contract; page escape reasons rejected
 2. **Compare pipeline**: area-gap pre-check → pixelmatch → SSIM → CIEDE2000 → optional cluster (page profile)
 3. **Pass/fail**: per-signal thresholds only — `fidelityScore` is rank-only, never a gate
 4. **Stability**: `runType: "final"` re-captures; `borderline` does not flip `pass` but blocks the done gate
 5. **Spec gate**: live DOM box vs current Figma `absoluteBoundingBox` (warn + skip on network/token errors)
-6. **Done gate**: `pass: true` + `runType: "final"` + fresh `capturedAt` + matching `nodeId` + `stability: "stable"` per viewport
+6. **Done gate**: exact `fileKey/nodeId/profile/selector/expectSize`, complete SHA-256-bound artifacts, fresh final stable PASS, matching gold metadata
 
-`fetch-gold` failures never fail `fidelity_run`. Runs always use gold already on disk.
+Failed runs invalidate old verdict artifacts before returning. `fetch-gold` failures never overwrite gold; callers must stop when `fetched:false`.
 
 ## Profiles
 
 Defined in [`src/profiles.ts`](src/profiles.ts). Threshold changes are human-review only. Optional: `git config core.hooksPath .githooks`.
 
-| Profile | minMatch | maxDiffPixels | minSSIM | maxAvgDeltaE | maxAreaGap |
-| --- | --- | --- | --- | --- | --- |
-| `page` | 0.99 | — | 0.97 | 4.0 | 5% |
-| `component/strict` | 0.995 | 500 | 0.985 | 3.0 | 2% |
-| `component/dev` | 0.98 | 2000 | 0.96 | 5.0 | 5% |
+| Profile            | minMatch | maxDiffPixels | minSSIM | maxAvgDeltaE | maxAreaGap |
+| ------------------ | -------- | ------------- | ------- | ------------ | ---------- |
+| `page`             | 0.99     | —             | 0.97    | 4.0          | 5%         |
+| `component/strict` | 0.995    | 500           | 0.985   | 3.0          | 2%         |
+| `component/dev`    | 0.98     | 2000          | 0.96    | 5.0          | 5%         |
 
-Default is `component/strict` when `nodeId` / `selector` is present. `page` must be explicit with `pageReason`.
+Default is `component/strict`. `component/dev` is iteration-only and cannot satisfy done-gate. `page` must be explicit with valid `pageReason`.
 
 ## CLI
 
@@ -143,12 +151,15 @@ pnpm exec figma-fidelity run \
   --viewport-size 1440x1024 \
   --gold ./artifacts/login/desktop/figma-gold.png \
   --out-dir ./artifacts/login/desktop \
+  --node-id 153:5181 \
   --selector '[data-testid=auth.login]' \
+  --expect-width 544 --expect-height 464 \
   --run-type final
 
 pnpm exec figma-fidelity done-gate \
-  --node-id 153:5181 \
-  --viewport desktop --out-dir ./artifacts/login/desktop
+  --viewport desktop --out-dir ./artifacts/login/desktop \
+  --file-key <key> --node-id 153:5181 --profile component/strict \
+  --selector '[data-testid=auth.login]' --expect-width 544 --expect-height 464
 ```
 
 Exit codes: `0` success/pass, `1` fail, `2` usage or config error.
@@ -177,10 +188,16 @@ const result = await run({
 });
 
 const done = checkDoneGate({
-  nodeId: "153:5181",
   viewports: [
-    { viewport: "desktop", outDir: "./artifacts/login/desktop" },
-    { viewport: "mobile", outDir: "./artifacts/login/mobile" },
+    {
+      viewport: "desktop",
+      outDir: "./artifacts/login/desktop",
+      fileKey: "…",
+      nodeId: "153:5181",
+      profile: "component/strict",
+      selector: "[data-testid=auth.login]",
+      expectSize: { width: 544, height: 464 },
+    },
   ],
 });
 ```

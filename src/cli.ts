@@ -38,8 +38,10 @@ function usage(): never {
   figma-fidelity fetch-gold --file-key <k> --node-id <id> --out <figma-gold.png> [--scale 1] [--canvas-fill '#fff']
   figma-fidelity compare --gold <png> --actual <png> --out-dir <dir> [--profile component/strict]
   figma-fidelity run --url <url> --viewport <name> --viewport-size WxH --gold <png> --out-dir <dir>
-                 (--node-id <id> | --selector <css>) [--profile …] [--page-reason …] [--run-type dev|final]
-  figma-fidelity done-gate [--node-id <id>] --viewport <name> --out-dir <dir> [--viewport-node-id <id>] …
+                 --node-id <id> [--selector <css>] [--profile …] [--page-reason …] [--run-type dev|final]
+                 [--expect-width <px> --expect-height <px>]
+  figma-fidelity done-gate --viewport <name> --out-dir <dir> --file-key <key> --node-id <id>
+                 --profile <profile> [--selector <css>] [--expect-width <px> --expect-height <px>] …
 `);
   process.exit(2);
 }
@@ -111,7 +113,7 @@ async function cmdRun(argv: string[]): Promise<void> {
   const outDir = arg(argv, "--out-dir");
   const nodeId = arg(argv, "--node-id");
   const selector = arg(argv, "--selector");
-  if (!url || !viewport || !vpSize || !goldPath || !outDir) usage();
+  if (!url || !viewport || !vpSize || !goldPath || !outDir || !nodeId) usage();
   const [w, h] = vpSize.split("x").map(Number);
   if (!w || !h) {
     console.error(`Invalid --viewport-size ${vpSize}`);
@@ -119,10 +121,12 @@ async function cmdRun(argv: string[]): Promise<void> {
   }
   const expectW = arg(argv, "--expect-width");
   const expectH = arg(argv, "--expect-height");
+  if (Boolean(expectW) !== Boolean(expectH)) {
+    console.error("--expect-width and --expect-height must be provided together");
+    process.exit(2);
+  }
   const expectSize =
-    expectW && expectH
-      ? { width: Number(expectW), height: Number(expectH) }
-      : undefined;
+    expectW && expectH ? { width: Number(expectW), height: Number(expectH) } : undefined;
   const result = await run({
     url,
     viewport,
@@ -142,29 +146,36 @@ async function cmdRun(argv: string[]): Promise<void> {
 }
 
 async function cmdDoneGate(argv: string[]): Promise<void> {
-  const nodeId = arg(argv, "--node-id");
-  const viewports: { viewport: string; outDir: string; nodeId?: string }[] = [];
+  const viewports: Parameters<typeof checkDoneGate>[0]["viewports"] = [];
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--viewport" && argv[i + 1]) {
       const viewport = argv[i + 1] as string;
-      const outDirFlag = argv.indexOf("--out-dir", i + 1);
-      const outDir = outDirFlag >= 0 ? argv[outDirFlag + 1] : undefined;
-      if (!outDir) {
-        console.error(`--viewport ${viewport} requires a following --out-dir`);
-        process.exit(2);
-      }
-      const vpNodeFlag = argv.indexOf("--viewport-node-id", i + 1);
       const nextVp = argv.indexOf("--viewport", i + 2);
-      const vpNodeId =
-        vpNodeFlag >= 0 && (nextVp < 0 || vpNodeFlag < nextVp)
-          ? argv[vpNodeFlag + 1]
-          : undefined;
-      viewports.push({ viewport, outDir, nodeId: vpNodeId });
+      const segment = argv.slice(i + 2, nextVp < 0 ? argv.length : nextVp);
+      const outDir = arg(segment, "--out-dir");
+      const fileKey = arg(segment, "--file-key");
+      const nodeId = arg(segment, "--node-id");
+      const profile = arg(segment, "--profile") as ProfileName | undefined;
+      if (!outDir || !fileKey || !nodeId || !profile) usage();
+      const expectW = arg(segment, "--expect-width");
+      const expectH = arg(segment, "--expect-height");
+      if (Boolean(expectW) !== Boolean(expectH)) usage();
+      viewports.push({
+        viewport,
+        outDir,
+        fileKey,
+        nodeId,
+        profile,
+        selector: arg(segment, "--selector"),
+        expectSize:
+          expectW && expectH ? { width: Number(expectW), height: Number(expectH) } : undefined,
+      });
+      if (nextVp < 0) break;
+      i = nextVp - 1;
     }
   }
   if (viewports.length === 0) usage();
-  if (!nodeId && viewports.every((v) => !v.nodeId)) usage();
-  const verdict = checkDoneGate({ nodeId, viewports });
+  const verdict = checkDoneGate({ viewports });
   console.log(JSON.stringify(verdict, null, 2));
   process.exit(verdict.done ? 0 : 1);
 }

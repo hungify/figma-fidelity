@@ -98,6 +98,54 @@ export function countRealDiffPixels(diff: PNG): number {
   return n;
 }
 
+export interface DiffCluster {
+  pixels: number;
+  bbox: { x0: number; y0: number; x1: number; y1: number };
+}
+
+/** Largest 4-connected red region. Separates broken controls from dispersed text rasterization. */
+export function largestRealDiffCluster(diff: PNG): DiffCluster | null {
+  const { width, height, data } = diff;
+  const seen = new Uint8Array(width * height);
+  let largest: DiffCluster | null = null;
+
+  for (let start = 0; start < seen.length; start++) {
+    if (seen[start] || !isRealDiffPixel(data, start << 2)) continue;
+    const stack = [start];
+    seen[start] = 1;
+    let pixels = 0;
+    let x0 = width;
+    let y0 = height;
+    let x1 = 0;
+    let y1 = 0;
+    while (stack.length > 0) {
+      const current = stack.pop()!;
+      const x = current % width;
+      const y = Math.floor(current / width);
+      pixels += 1;
+      x0 = Math.min(x0, x);
+      y0 = Math.min(y0, y);
+      x1 = Math.max(x1, x + 1);
+      y1 = Math.max(y1, y + 1);
+      const neighbors = [
+        x > 0 ? current - 1 : -1,
+        x + 1 < width ? current + 1 : -1,
+        y > 0 ? current - width : -1,
+        y + 1 < height ? current + width : -1,
+      ];
+      for (const next of neighbors) {
+        if (next < 0 || seen[next] || !isRealDiffPixel(data, next << 2)) continue;
+        seen[next] = 1;
+        stack.push(next);
+      }
+    }
+    if (!largest || pixels > largest.pixels) {
+      largest = { pixels, bbox: { x0, y0, x1, y1 } };
+    }
+  }
+  return largest;
+}
+
 /** Bounding box of real (red) diff pixels; null when no real diffs. */
 export function diffBoundingBox(
   diff: PNG,

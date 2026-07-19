@@ -8,6 +8,7 @@ import {
   clusterFails,
   countRealDiffPixels,
   diffBoundingBox,
+  largestRealDiffCluster,
   pixelCompare,
 } from "./pixel.ts";
 import { padTo, readPng, writePng } from "./png.ts";
@@ -18,6 +19,7 @@ export { avgDeltaE2000 } from "./delta-e.ts";
 export {
   countRealDiffPixels,
   diffBoundingBox,
+  largestRealDiffCluster,
   pixelCompare,
   worstGridMatchRatio,
 } from "./pixel.ts";
@@ -34,7 +36,7 @@ export { ssimCompare } from "./ssim.ts";
 
 const EXPECT_SIZE_TOLERANCE_PX = 2;
 /** Even when thresholds pass, surface residual red if above this count. */
-const RESIDUAL_REAL_DIFF_WARN = 80;
+const RESIDUAL_CLUSTER_BLOCK = 80;
 
 /**
  * Multi-signal compare pipeline (align → area-gap pre-check → pixel → SSIM →
@@ -175,10 +177,11 @@ export function compare(
   // Residual hotspot: thresholds can pass while CTA/icon still red in diff.png.
   const realDiffs = countRealDiffPixels(pixel.diff);
   const residualBox = diffBoundingBox(pixel.diff);
-  if (pass && realDiffs >= RESIDUAL_REAL_DIFF_WARN && residualBox) {
+  const largestCluster = largestRealDiffCluster(pixel.diff);
+  if (pass && largestCluster && largestCluster.pixels >= RESIDUAL_CLUSTER_BLOCK && residualBox) {
     const msg =
-      `pass=true but ${realDiffs} residual red diff px remain in bbox ` +
-      `${residualBox.x0},${residualBox.y0}–${residualBox.x1},${residualBox.y1} — ` +
+      `pass=true but largest residual cluster has ${largestCluster.pixels}/${realDiffs} red px ` +
+      `in bbox ${largestCluster.bbox.x0},${largestCluster.bbox.y0}–${largestCluster.bbox.x1},${largestCluster.bbox.y1} — ` +
       `inspect diff.png (CTA / inputs / icons may still be wrong).`;
     warnings.push(msg);
     topIssues.push({
@@ -192,7 +195,7 @@ export function compare(
     topIssues.push({
       severity: "low",
       kind: "residual",
-      message: `${realDiffs} residual red diff px (bbox ${residualBox.x0},${residualBox.y0}–${residualBox.x1},${residualBox.y1})`,
+      message: `${realDiffs} dispersed residual red diff px; largest cluster ${largestCluster?.pixels ?? 0} (bbox ${residualBox.x0},${residualBox.y0}–${residualBox.x1},${residualBox.y1})`,
       hint: "Read diff.png before claiming visual done.",
     });
   }

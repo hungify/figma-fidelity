@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 1 as const;
+export const SCHEMA_VERSION = 2 as const;
 
 export type ProfileName = "page" | "component/strict" | "component/dev";
 
@@ -8,7 +8,17 @@ export type Stability = "stable" | "borderline";
 
 export type FidelityErrorCode =
   | "SCOPE_REQUIRED"
+  | "NODE_ID_REQUIRED"
+  | "SELECTOR_REQUIRED"
   | "PAGE_REASON_REQUIRED"
+  | "PAGE_REASON_FORBIDDEN"
+  | "PAGE_SELECTOR_FORBIDDEN"
+  | "EXPECT_SIZE_REQUIRED"
+  | "EXPECT_SIZE_FORBIDDEN"
+  | "GOLD_META_REQUIRED"
+  | "GOLD_META_INVALID"
+  | "GOLD_PATH_INVALID"
+  | "GOLD_NODE_MISMATCH"
   | "SELECTOR_NOT_FOUND"
   | "SELECTOR_AMBIGUOUS";
 
@@ -42,10 +52,29 @@ export interface RejectResult {
 }
 
 export interface RunArtifacts {
+  gold: string;
+  goldMeta: string;
+  actual: string;
   score: string;
   diff: string | null;
   punchList: string;
   meta: string;
+}
+
+export interface GoldEvidence {
+  path: string;
+  metaPath: string;
+  fileKey: string;
+  nodeId: string;
+  fetchedAt: string;
+  lastModified: string | null;
+}
+
+export interface RunEvidenceHashes {
+  gold: string;
+  goldMeta: string;
+  actual: string;
+  diff: string | null;
 }
 
 /** Success/fail body (fidelity verdict — distinct from config-error rejects). */
@@ -57,8 +86,12 @@ export interface RunResult {
   viewport: string;
   profile: ProfileName;
   pageReason: string | null;
+  fileKey: string;
   nodeId: string | null;
   selector: string | null;
+  expectSize: ExpectSize | null;
+  gold: GoldEvidence;
+  evidenceHashes: RunEvidenceHashes;
   /** Rank-only weighted blend. NEVER a gate until calibrated. */
   fidelityScore: number;
   matchRatio: number | null;

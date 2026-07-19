@@ -143,8 +143,7 @@ describe("compare pipeline", () => {
     expect(r.avgDeltaE as number).toBeGreaterThan(3);
   });
 
-  it("pass=true with residual red still warns (kind=residual)", () => {
-    // Sparse red pixels: page match/SSIM/deltaE still pass (diluted), but red remains.
+  it("dispersed residuals stay low severity (text rasterization class)", () => {
     const goldPng = makeSolidPng(800, 600, [240, 240, 240, 255]);
     const hot = makeSolidPng(800, 600, [240, 240, 240, 255]);
     let n = 0;
@@ -162,7 +161,30 @@ describe("compare pipeline", () => {
     const actual = write(hot, "actual");
     const r = compare(gold, actual, outDir(), { profile: "page" });
     expect(r.pass).toBe(true);
-    expect(r.warnings.some((w) => w.includes("residual"))).toBe(true);
-    expect(r.topIssues.some((i) => i.kind === "residual")).toBe(true);
+    expect(r.warnings).toHaveLength(0);
+    expect(r.topIssues.some((i) => i.kind === "residual" && i.severity === "low")).toBe(true);
+  });
+
+  it("connected residual cluster blocks done-gate even when signal thresholds pass", () => {
+    const goldPng = makeSolidPng(800, 600, [240, 240, 240, 255]);
+    const hot = makeSolidPng(800, 600, [240, 240, 240, 255]);
+    for (let i = 0; i < 100; i++) {
+      for (const x of [100 + i, 101 + i]) {
+        const y = 100 + i;
+        const offset = (800 * y + x) << 2;
+        hot.data[offset] = 200;
+        hot.data[offset + 1] = 30;
+        hot.data[offset + 2] = 30;
+        hot.data[offset + 3] = 255;
+      }
+    }
+    const r = compare(write(goldPng, "gold"), write(hot, "actual"), outDir(), {
+      profile: "page",
+    });
+    expect(r.pass).toBe(true);
+    expect(r.warnings.some((warning) => warning.includes("largest residual cluster"))).toBe(true);
+    expect(
+      r.topIssues.some((issue) => issue.kind === "residual" && issue.severity === "medium"),
+    ).toBe(true);
   });
 });

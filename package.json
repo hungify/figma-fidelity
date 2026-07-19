@@ -1,6 +1,6 @@
 {
   "name": "figma-fidelity",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "MCP-first Figma visual fidelity engine: multi-signal compare, scope guards, stability check, artifact-based done-gate.",
   "repository": {
     "type": "git",

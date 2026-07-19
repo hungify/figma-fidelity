@@ -7,6 +7,7 @@ export {
   compositeOnCanvas,
   countRealDiffPixels,
   diffBoundingBox,
+  largestRealDiffCluster,
   makeSolidPng,
   padTo,
   parseHexRgb,
@@ -17,7 +18,7 @@ export {
   worstGridMatchRatio,
   writePng,
 } from "./compare/index.ts";
-export { checkDoneGate, DEFAULT_MAX_SCORE_AGE_MS } from "./done-gate.ts";
+export { checkDoneGate, DEFAULT_MAX_GOLD_AGE_MS, DEFAULT_MAX_SCORE_AGE_MS } from "./done-gate.ts";
 export type {
   DoneGateOptions,
   DoneGateVerdict,
@@ -64,9 +65,11 @@ export type {
   ExpectSize,
   FidelityErrorCode,
   FidelityResult,
+  GoldEvidence,
   ProfileName,
   RejectResult,
   RunArtifacts,
+  RunEvidenceHashes,
   RunOptions,
   RunResult,
   RunType,

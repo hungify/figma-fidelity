@@ -1,9 +1,10 @@
+import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
 import { capture } from "./capture.ts";
 import { compare } from "./compare/index.ts";
-import { readGoldMeta } from "./fetch-gold.ts";
+import { goldMetaPath, readGoldMeta } from "./fetch-gold.ts";
 import { getProfile } from "./profiles.ts";
 import { writeArtifacts } from "./report.ts";
 import { resolveProfile, validateScope } from "./scope.ts";
@@ -26,6 +27,8 @@ import { SCHEMA_VERSION } from "./types.ts";
  * failures never propagate here.
  */
 export async function run(options: RunOptions): Promise<FidelityResult> {
+  invalidateRunArtifacts(options.outDir);
+
   // Guards 1–2 (pure input).
   const scopeReject = validateScope(options);
   if (scopeReject) return scopeReject;
@@ -33,12 +36,50 @@ export async function run(options: RunOptions): Promise<FidelityResult> {
   const profileName = resolveProfile(options);
   const profile = getProfile(profileName);
   const runType = options.runType ?? "dev";
-  const pageEscapeWarnings = warnPageEscape(options, profileName);
-
   if (!fs.existsSync(options.goldPath)) {
     throw new Error(
       `Gold not found on disk: ${options.goldPath}. Run fetch-gold first (fetch-gold failures never fail fidelity_run; run simply requires gold to exist).`,
     );
+  }
+  const expectedGoldPath = path.resolve(options.outDir, "figma-gold.png");
+  if (path.resolve(options.goldPath) !== expectedGoldPath) {
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      ok: false,
+      error: "GOLD_PATH_INVALID",
+      message: `goldPath must be ${expectedGoldPath} for this contract outDir.`,
+    };
+  }
+
+  const goldMeta = readGoldMeta(options.goldPath);
+  if (!goldMeta) {
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      ok: false,
+      error: "GOLD_META_REQUIRED",
+      message: "figma-gold.meta.json required; run fidelity_fetch_gold before fidelity_run.",
+    };
+  }
+  if (
+    !goldMeta.fileKey ||
+    !goldMeta.nodeId ||
+    !goldMeta.fetchedAt ||
+    !Number.isFinite(Date.parse(goldMeta.fetchedAt))
+  ) {
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      ok: false,
+      error: "GOLD_META_INVALID",
+      message: "figma-gold.meta.json missing valid fileKey/nodeId/fetchedAt evidence.",
+    };
+  }
+  if (goldMeta.nodeId !== options.nodeId) {
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      ok: false,
+      error: "GOLD_NODE_MISMATCH",
+      message: `gold nodeId "${goldMeta.nodeId}" does not match run nodeId "${options.nodeId}".`,
+    };
   }
 
   const outDir = options.outDir;
@@ -81,22 +122,14 @@ export async function run(options: RunOptions): Promise<FidelityResult> {
   }
   // Warning-only; staleness/network problems never fail a run.
   const stalenessWarnings = await checkGoldStaleness(options.goldPath);
-  const warnings = [
-    ...pageEscapeWarnings,
-    ...captured.warnings,
-    ...compareOutcome.warnings,
-    ...stalenessWarnings,
-  ];
+  const warnings = [...captured.warnings, ...compareOutcome.warnings, ...stalenessWarnings];
   const topIssues = [...compareOutcome.topIssues];
   let pass = compareOutcome.pass;
 
   // Spec gate: live DOM box vs CURRENT Figma spec. Hard-fail on mismatch;
   // any skip reason (page profile, no token, network) is a warning only.
   if (profileName !== "page" && options.nodeId) {
-    const goldMeta = readGoldMeta(options.goldPath);
-    if (!goldMeta) {
-      warnings.push("spec-gate skipped: gold has no figma-gold.meta.json sidecar (no fileKey).");
-    } else if (!captured.elementRect) {
+    if (!captured.elementRect) {
       warnings.push("spec-gate skipped: no selector element measurement available.");
     } else {
       const spec = await specGate({
@@ -123,8 +156,24 @@ export async function run(options: RunOptions): Promise<FidelityResult> {
     viewport: options.viewport,
     profile: profileName,
     pageReason: options.pageReason ?? null,
+    fileKey: goldMeta.fileKey,
     nodeId: options.nodeId ?? null,
     selector: options.selector ?? null,
+    expectSize: options.expectSize ?? null,
+    gold: {
+      path: path.resolve(options.goldPath),
+      metaPath: path.resolve(goldMetaPath(options.goldPath)),
+      fileKey: goldMeta.fileKey,
+      nodeId: goldMeta.nodeId,
+      fetchedAt: goldMeta.fetchedAt,
+      lastModified: goldMeta.lastModified,
+    },
+    evidenceHashes: {
+      gold: fileHash(options.goldPath),
+      goldMeta: fileHash(goldMetaPath(options.goldPath)),
+      actual: fileHash(actualPath),
+      diff: compareOutcome.diffPath ? fileHash(compareOutcome.diffPath) : null,
+    },
     fidelityScore: compareOutcome.fidelityScore,
     matchRatio: compareOutcome.matchRatio,
     ssim: compareOutcome.ssim,
@@ -135,6 +184,9 @@ export async function run(options: RunOptions): Promise<FidelityResult> {
     capturedAt: captured.capturedAt,
     outDir,
     artifacts: {
+      gold: path.resolve(options.goldPath),
+      goldMeta: path.resolve(goldMetaPath(options.goldPath)),
+      actual: actualPath,
       score: path.join(outDir, "visual-score.json"),
       diff: compareOutcome.diffPath,
       punchList: path.join(outDir, "punch-list.json"),
@@ -156,27 +208,22 @@ export async function run(options: RunOptions): Promise<FidelityResult> {
   return result;
 }
 
-/** Heuristic: profile=page used to dodge content-crop / alpha / shadow. */
-/** Escape excuses — not legitimate `full-bleed` layout reasons. */
-const PAGE_ESCAPE_RE =
-  /\b(alpha|transparenc|soft.?shadow|drop.?shadow|escape|dilut|full.?page.?ok|content.?crop|figma-gold-content)\b|(?<!full-)bleed/i;
+function fileHash(filePath: string): string {
+  return `sha256:${crypto.createHash("sha256").update(fs.readFileSync(filePath)).digest("hex")}`;
+}
 
-function warnPageEscape(
-  options: RunOptions,
-  profileName: string,
-): string[] {
-  if (profileName !== "page") return [];
-  const out: string[] = [];
-  if (options.expectSize) {
-    out.push(
-      "profile=page with expectSize — prefer component/strict + content-crop selector; full-page dilutes local CTA/icon diffs.",
-    );
+function invalidateRunArtifacts(outDir: string): void {
+  for (const name of [
+    "actual.png",
+    "diff.png",
+    "visual-score.json",
+    "run-meta.json",
+    "punch-list.json",
+  ]) {
+    try {
+      fs.unlinkSync(path.join(outDir, name));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
   }
-  const reason = options.pageReason ?? "";
-  if (PAGE_ESCAPE_RE.test(reason)) {
-    out.push(
-      `pageReason suggests content-crop dodge ("${reason.slice(0, 120)}"). Prefer component/strict + unique selector over profile=page.`,
-    );
-  }
-  return out;
 }

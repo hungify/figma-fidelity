@@ -20,10 +20,19 @@ import { run } from "./run.ts";
 loadNearestEnv();
 
 const SERVER_NAME = "figma-fidelity";
-const SERVER_VERSION = "0.1.0";
+const SERVER_VERSION = "0.2.0";
+const DEBUG_TOOLS_ENV = "FIGMA_FIDELITY_DEBUG_TOOLS";
+
+export interface FidelityMcpServerOptions {
+  includeDebugTools?: boolean;
+}
 
 const profileSchema = z.enum(["page", "component/strict", "component/dev"]);
 const runTypeSchema = z.enum(["dev", "final"]);
+const expectSizeSchema = z.object({
+  width: z.number().positive(),
+  height: z.number().positive(),
+});
 
 /** Optional cwd override for relative path resolution (MCP often not in repo root). */
 const cwdSchema = z
@@ -59,8 +68,13 @@ function resolvePaths(
   return out;
 }
 
-export function createFidelityMcpServer(): McpServer {
+function debugToolsEnabled(): boolean {
+  return process.env[DEBUG_TOOLS_ENV] === "1";
+}
+
+export function createFidelityMcpServer(options: FidelityMcpServerOptions = {}): McpServer {
   const server = new McpServer({ name: SERVER_NAME, version: SERVER_VERSION });
+  const includeDebugTools = options.includeDebugTools ?? debugToolsEnabled();
 
   server.registerTool(
     "fidelity_fetch_gold",
@@ -70,10 +84,7 @@ export function createFidelityMcpServer(): McpServer {
       inputSchema: {
         fileKey: z.string().min(1).describe("Figma file key"),
         nodeId: z.string().min(1).describe('Figma node id, e.g. "153:5181"'),
-        outPath: z
-          .string()
-          .min(1)
-          .describe("Output path for figma-gold.png (absolute preferred)"),
+        outPath: z.string().min(1).describe("Output path for figma-gold.png (absolute preferred)"),
         scale: z.number().positive().optional().describe("Render scale (default 1)"),
         canvasFill: z
           .string()
@@ -102,88 +113,85 @@ export function createFidelityMcpServer(): McpServer {
     },
   );
 
-  server.registerTool(
-    "fidelity_capture",
-    {
-      description:
-        "Hardened Playwright capture (DSF=1, no-animation, selector uniqueness guards). Prefer fidelity_run for a full verify loop. Prefer absolute outPath.",
-      inputSchema: {
-        url: z.url().describe("Rendered app URL"),
-        outPath: z.string().min(1).describe("Output actual.png path (absolute preferred)"),
-        viewportWidth: z.number().int().positive(),
-        viewportHeight: z.number().int().positive(),
-        selector: z
-          .string()
-          .optional()
-          .describe("CSS selector — must resolve to exactly 1 element"),
-        samples: z.number().int().positive().optional(),
-        cwd: cwdSchema,
+  if (includeDebugTools) {
+    server.registerTool(
+      "fidelity_capture",
+      {
+        description:
+          "Debug-only hardened Playwright capture (DSF=1, no-animation, selector uniqueness guards). Prefer fidelity_run for verification.",
+        inputSchema: {
+          url: z.url().describe("Rendered app URL"),
+          outPath: z.string().min(1).describe("Output actual.png path (absolute preferred)"),
+          viewportWidth: z.number().int().positive(),
+          viewportHeight: z.number().int().positive(),
+          selector: z
+            .string()
+            .optional()
+            .describe("CSS selector — must resolve to exactly 1 element"),
+          samples: z.number().int().positive().optional(),
+          cwd: cwdSchema,
+        },
       },
-    },
-    async (args) => {
-      try {
-        const { outPath } = resolvePaths({ outPath: args.outPath }, args.cwd);
-        return jsonResult(
-          await capture({
-            url: args.url,
-            outPath: outPath!,
-            viewportSize: { width: args.viewportWidth, height: args.viewportHeight },
-            selector: args.selector,
-            samples: args.samples,
-          }),
-        );
-      } catch (err) {
-        return jsonError(err);
-      }
-    },
-  );
+      async (args) => {
+        try {
+          const { outPath } = resolvePaths({ outPath: args.outPath }, args.cwd);
+          return jsonResult(
+            await capture({
+              url: args.url,
+              outPath: outPath!,
+              viewportSize: { width: args.viewportWidth, height: args.viewportHeight },
+              selector: args.selector,
+              samples: args.samples,
+            }),
+          );
+        } catch (err) {
+          return jsonError(err);
+        }
+      },
+    );
 
-  server.registerTool(
-    "fidelity_compare",
-    {
-      description:
-        "Compare gold PNG vs actual PNG (area-gap → pixel → SSIM → ΔE). Does not capture. pass = per-signal thresholds only. When pass=true but residual red remains, warnings/topIssues include kind=residual — still inspect diff.png. Prefer absolute paths.",
-      inputSchema: {
-        goldPath: z.string().min(1).describe("Absolute preferred"),
-        actualPath: z.string().min(1).describe("Absolute preferred"),
-        outDir: z.string().min(1).describe("Artifact dir (absolute preferred)"),
-        profile: profileSchema.optional().describe("Default component/strict"),
-        expectWidth: z.number().positive().optional(),
-        expectHeight: z.number().positive().optional(),
-        cwd: cwdSchema,
+    server.registerTool(
+      "fidelity_compare",
+      {
+        description:
+          "Debug-only compare of existing gold and actual PNGs. Does not capture. Inspect diff.png even when pass=true.",
+        inputSchema: {
+          goldPath: z.string().min(1).describe("Absolute preferred"),
+          actualPath: z.string().min(1).describe("Absolute preferred"),
+          outDir: z.string().min(1).describe("Artifact dir (absolute preferred)"),
+          profile: profileSchema.optional().describe("Default component/strict"),
+          expectSize: expectSizeSchema.optional(),
+          cwd: cwdSchema,
+        },
       },
-    },
-    async (args) => {
-      try {
-        const resolved = resolvePaths(
-          {
-            goldPath: args.goldPath,
-            actualPath: args.actualPath,
-            outDir: args.outDir,
-          },
-          args.cwd,
-        );
-        const expectSize =
-          args.expectWidth != null && args.expectHeight != null
-            ? { width: args.expectWidth, height: args.expectHeight }
-            : undefined;
-        return jsonResult(
-          compare(resolved.goldPath!, resolved.actualPath!, resolved.outDir!, {
-            profile: args.profile ?? "component/strict",
-            expectSize,
-          }),
-        );
-      } catch (err) {
-        return jsonError(err);
-      }
-    },
-  );
+      async (args) => {
+        try {
+          const resolved = resolvePaths(
+            {
+              goldPath: args.goldPath,
+              actualPath: args.actualPath,
+              outDir: args.outDir,
+            },
+            args.cwd,
+          );
+          return jsonResult(
+            compare(resolved.goldPath!, resolved.actualPath!, resolved.outDir!, {
+              profile: args.profile ?? "component/strict",
+              expectSize: args.expectSize,
+            }),
+          );
+        } catch (err) {
+          return jsonError(err);
+        }
+      },
+    );
+  }
 
   server.registerTool(
     "fidelity_run",
     {
       description:
-        'Fresh guarded fidelity run: scope guards → capture → multi-signal compare → artifacts. REQUIRED: nodeId or selector, viewport. Default profile is component/strict for content crops. profile=page also requires pageReason and dilutes local diffs — avoid using page to dodge alpha/shadow/content-crop. Prefer absolute goldPath/outDir. Gold must already exist on disk. Read warnings + punch-list even when pass=true (residual hotspots).',
+        "Fresh fidelity contract. Component profiles require nodeId + unique selector; component/strict also requires expectSize. Page requires nodeId + valid pageReason and forbids selector/expectSize. Gold must be <outDir>/figma-gold.png with matching meta. Failed runs invalidate old score artifacts.",
       inputSchema: {
         url: z.url(),
         viewport: z.string().min(1).describe('"desktop" | "mobile" | custom label'),
@@ -191,8 +199,11 @@ export function createFidelityMcpServer(): McpServer {
         viewportHeight: z.number().int().positive(),
         goldPath: z.string().min(1).describe("Absolute preferred"),
         outDir: z.string().min(1).describe("Absolute preferred"),
-        nodeId: z.string().optional().describe("Figma node id (required unless selector)"),
-        selector: z.string().optional().describe("Unique CSS selector (required unless nodeId)"),
+        nodeId: z.string().min(1).describe("Figma node id bound to gold metadata"),
+        selector: z
+          .string()
+          .optional()
+          .describe("Required for component profiles; forbidden for page"),
         profile: profileSchema
           .optional()
           .describe("Default component/strict when scoped. page requires pageReason."),
@@ -203,22 +214,16 @@ export function createFidelityMcpServer(): McpServer {
             "Required when profile=page — why full-viewport verify is intended. Do not cite alpha/shadow/bleed as reasons to skip content crop.",
           ),
         runType: runTypeSchema.optional().describe('Use "final" before claiming done'),
-        expectWidth: z.number().positive().optional(),
-        expectHeight: z.number().positive().optional(),
+        expectSize: expectSizeSchema
+          .optional()
+          .describe("Required for component/strict; forbidden for page"),
         stabilitySamples: z.number().int().positive().optional(),
         cwd: cwdSchema,
       },
     },
     async (args) => {
       try {
-        const resolved = resolvePaths(
-          { goldPath: args.goldPath, outDir: args.outDir },
-          args.cwd,
-        );
-        const expectSize =
-          args.expectWidth != null && args.expectHeight != null
-            ? { width: args.expectWidth, height: args.expectHeight }
-            : undefined;
+        const resolved = resolvePaths({ goldPath: args.goldPath, outDir: args.outDir }, args.cwd);
         return jsonResult(
           await run({
             url: args.url,
@@ -231,7 +236,7 @@ export function createFidelityMcpServer(): McpServer {
             profile: args.profile,
             pageReason: args.pageReason,
             runType: args.runType,
-            expectSize,
+            expectSize: args.expectSize,
             stabilitySamples: args.stabilitySamples,
           }),
         );
@@ -245,41 +250,29 @@ export function createFidelityMcpServer(): McpServer {
     "fidelity_done_gate",
     {
       description:
-        'Artifact-gated "done" check per viewport. Requires pass:true + runType:final + fresh capturedAt + matching nodeId + stability:stable (or borderline + note after one manual re-run). Prefer absolute outDir. Top-level nodeId optional when every viewport sets nodeId.',
+        "Artifact completion gate. Every viewport declares exact fileKey/nodeId/profile/selector/expectSize contract. Requires final stable PASS, fresh score, matching gold metadata, and complete artifacts.",
       inputSchema: {
-        nodeId: z
-          .string()
-          .optional()
-          .describe("Default expected nodeId; override per viewport via viewports[].nodeId"),
         viewports: z
           .array(
             z.object({
               viewport: z.string().min(1),
               outDir: z.string().min(1).describe("Absolute preferred"),
-              nodeId: z
-                .string()
-                .optional()
-                .describe("Per-viewport node override (desktop crop vs mobile page)"),
-              acceptBorderlineNote: z.string().optional(),
+              fileKey: z.string().min(1),
+              nodeId: z.string().min(1),
+              profile: profileSchema,
+              selector: z.string().min(1).optional(),
+              expectSize: expectSizeSchema.optional(),
             }),
           )
           .min(1),
-        maxScoreAgeMs: z.number().int().positive().optional(),
         cwd: cwdSchema,
       },
     },
     async (args) => {
       try {
-        if (!args.nodeId && args.viewports.every((v) => !v.nodeId)) {
-          return jsonError(
-            new Error("nodeId required at top level or on every viewport"),
-          );
-        }
         return jsonResult(
           checkDoneGate({
-            nodeId: args.nodeId,
             viewports: args.viewports,
-            maxScoreAgeMs: args.maxScoreAgeMs,
             cwd: args.cwd,
           }),
         );

@@ -34,14 +34,13 @@ export function writeArtifacts(input: ReportInput): void {
       samples: stability.samples,
       maxObservedDiffRatio: stability.maxObservedDiffRatio,
     },
-    gold: path.resolve(input.goldPath),
-    actual: path.resolve(input.actualPath),
   };
   fs.writeFileSync(result.artifacts.score, `${JSON.stringify(score, null, 2)}\n`);
 
   const runMeta = {
     schemaVersion: result.schemaVersion,
     url: options.url,
+    fileKey: result.fileKey,
     nodeId: result.nodeId,
     selector: result.selector,
     viewport: result.viewport,
@@ -49,8 +48,9 @@ export function writeArtifacts(input: ReportInput): void {
     profile: result.profile,
     pageReason: result.pageReason,
     runType: result.runType,
-    expectSize: options.expectSize ?? null,
-    goldPath: path.resolve(input.goldPath),
+    expectSize: result.expectSize,
+    gold: result.gold,
+    actualPath: path.resolve(input.actualPath),
     capturedAt: result.capturedAt,
     stability: result.stability,
     stabilitySamples: stability.samples,
